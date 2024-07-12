@@ -1,7 +1,8 @@
 package runner
 
 import (
-	"fmt"
+	"bytes"
+	"errors"
 	"log"
 	"net/http"
 
@@ -16,45 +17,55 @@ func NewClient() *Client {
 	return &Client{client: &http.Client{}}
 }
 
-func (c *Client) Request(url string) *http.Request {
-	req, err := http.NewRequest("GET", url, nil)
+func (c *Client) Fetch(config map[string]interface{}) error {
+	method := "GET"
+	if config["method"] != nil {
+		method = config["method"].(string)
+	}
+
+	url := config["url"].(string)
+	if url == "" {
+		return errors.New("url is required")
+	}
+
+	var body []byte
+	if config["body"] != nil {
+		body = []byte(config["body"].(string))
+	}
+
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
 	if err != nil {
 		log.Println("Failed to create request:", err)
-		return nil
+		return err
 	}
-	return req
-}
 
-func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	if req == nil {
-		log.Println("Request is nil, cannot send request")
-		return nil, fmt.Errorf("request is nil")
+	if config["headers"] != nil {
+		headers := config["headers"].(map[string]interface{})
+		for key, value := range headers {
+			req.Header.Set(key, value.(string))
+		}
 	}
-	resp, err := c.client.Do(req)
+
+	_, err = c.client.Do(req)
 	if err != nil {
 		log.Println("Request failed with error:", err)
-		return nil, err
+		return err
 	}
-	return resp, nil
+
+	return nil
 }
 
 func RegisterClientMethods(vm *goja.Runtime, client *Client) error {
 	clientObj := vm.NewObject()
-	err := clientObj.Set("Request", func(call goja.FunctionCall) goja.Value {
-		url := call.Argument(0).String()
-		return vm.ToValue(client.Request(url))
-	})
-	if err != nil {
-		return err
-	}
-	err = clientObj.Set("Do", func(call goja.FunctionCall) goja.Value {
-		req := call.Argument(0).Export().(*http.Request)
-		resp, err := client.Do(req)
+	err := clientObj.Set("fetch", func(call goja.FunctionCall) goja.Value {
+		config := call.Argument(0).Export().(map[string]interface{})
+
+		err := client.Fetch(config)
 		if err != nil {
 			log.Println("Error performing request:", err)
-			return goja.Null()
 		}
-		return vm.ToValue(resp)
+
+		return goja.Undefined()
 	})
 	if err != nil {
 		return err
