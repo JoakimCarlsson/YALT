@@ -15,7 +15,11 @@ type VMWrapper struct {
 	clientObject goja.Value
 }
 
-func RunStage(client *Client, concurrentUsers, duration int, scriptFile string) {
+func RunStage(
+	client *Client,
+	concurrentUsers, duration int,
+	scriptFile string,
+) {
 	var wg sync.WaitGroup
 	vmPool := make([]*VMWrapper, concurrentUsers)
 
@@ -39,18 +43,21 @@ func RunStage(client *Client, concurrentUsers, duration int, scriptFile string) 
 	log.Println("Stage completed.")
 }
 
-func initializeVM(client *Client, scriptFile string) (*VMWrapper, error) {
+func initializeVM(
+	client *Client,
+	scriptFile string,
+) (*VMWrapper, error) {
 	vm := goja.New()
 
 	console := vm.NewObject()
-	console.Set("log", func(call goja.FunctionCall) goja.Value {
+	_ = console.Set("log", func(call goja.FunctionCall) goja.Value {
 		log.Println(call.Arguments)
 		return goja.Undefined()
 	})
-	vm.Set("console", console)
+	_ = vm.Set("console", console)
 
 	exports := vm.NewObject()
-	vm.Set("exports", exports)
+	_ = vm.Set("exports", exports)
 
 	if err := RegisterClientMethods(vm, client); err != nil {
 		return nil, err

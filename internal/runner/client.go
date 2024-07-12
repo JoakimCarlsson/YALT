@@ -76,7 +76,10 @@ func (c *Client) Fetch(config map[string]interface{}) error {
 	return nil
 }
 
-func RegisterClientMethods(vm *goja.Runtime, client *Client) error {
+func RegisterClientMethods(
+	vm *goja.Runtime,
+	client *Client,
+) error {
 	clientObj := vm.NewObject()
 	err := clientObj.Set("fetch", func(call goja.FunctionCall) goja.Value {
 		config := call.Argument(0).Export().(map[string]interface{})

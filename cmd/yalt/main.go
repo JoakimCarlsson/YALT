@@ -54,15 +54,8 @@ func main() {
 func extractOptions(jsFile string) (*Options, error) {
 	vm := goja.New()
 
-	console := vm.NewObject()
-	console.Set("log", func(call goja.FunctionCall) goja.Value {
-		log.Println(call.Arguments)
-		return goja.Undefined()
-	})
-	vm.Set("console", console)
-
 	exports := vm.NewObject()
-	vm.Set("exports", exports)
+	_ = vm.Set("exports", exports)
 
 	script, err := os.ReadFile(jsFile)
 	if err != nil {
