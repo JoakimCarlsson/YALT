@@ -27,7 +27,12 @@ func RunStage(client *Client, concurrentUsers, duration int, scriptFile string) 
 
 			exports := vm.NewObject()
 			vm.Set("exports", exports)
-			RegisterClientMethods(vm, client)
+
+			err := RegisterClientMethods(vm, client)
+			if err != nil {
+				log.Printf("Error registering client methods: %v", err)
+				return
+			}
 
 			script, err := os.ReadFile(scriptFile)
 			if err != nil {

@@ -38,13 +38,16 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-func RegisterClientMethods(vm *goja.Runtime, client *Client) {
+func RegisterClientMethods(vm *goja.Runtime, client *Client) error {
 	clientObj := vm.NewObject()
-	clientObj.Set("Request", func(call goja.FunctionCall) goja.Value {
+	err := clientObj.Set("Request", func(call goja.FunctionCall) goja.Value {
 		url := call.Argument(0).String()
 		return vm.ToValue(client.Request(url))
 	})
-	clientObj.Set("Do", func(call goja.FunctionCall) goja.Value {
+	if err != nil {
+		return err
+	}
+	err = clientObj.Set("Do", func(call goja.FunctionCall) goja.Value {
 		req := call.Argument(0).Export().(*http.Request)
 		resp, err := client.Do(req)
 		if err != nil {
@@ -53,5 +56,13 @@ func RegisterClientMethods(vm *goja.Runtime, client *Client) {
 		}
 		return vm.ToValue(resp)
 	})
-	vm.Set("client", clientObj)
+	if err != nil {
+		return err
+	}
+	err = vm.Set("client", clientObj)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

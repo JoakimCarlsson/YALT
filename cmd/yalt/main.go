@@ -28,7 +28,6 @@ func main() {
 
 	log.Println("Loading JavaScript file...")
 
-	// Extract options and load test function from the JavaScript file
 	options, err := extractOptions(scriptFile)
 	if err != nil {
 		log.Fatalf("failed to extract options: %v", err)
@@ -37,12 +36,9 @@ func main() {
 	log.Printf("Options: %+v\n", options)
 	log.Printf("Thresholds: %+v\n", options.Thresholds)
 
-	log.Println("Options extracted. Setting up client...")
-
 	client := runner.NewClient()
 	go metrics.TrackMetrics()
 
-	// Convert stages to config format and run load test
 	for _, stage := range options.Stages {
 		duration, _ := time.ParseDuration(stage.Duration)
 		log.Printf("Starting stage: %s with %d concurrent users for %d seconds", stage.Duration, stage.Target, int(duration.Seconds()))
@@ -58,7 +54,6 @@ func main() {
 func extractOptions(jsFile string) (*Options, error) {
 	vm := goja.New()
 
-	// Redirect JavaScript console.log to Go log
 	console := vm.NewObject()
 	console.Set("log", func(call goja.FunctionCall) goja.Value {
 		log.Println(call.Arguments)
