@@ -3,8 +3,11 @@ package runner
 import (
 	"bytes"
 	"errors"
+	"io"
 	"log"
+	"net"
 	"net/http"
+	"time"
 
 	"github.com/dop251/goja"
 )
@@ -14,7 +17,19 @@ type Client struct {
 }
 
 func NewClient() *Client {
-	return &Client{client: &http.Client{}}
+	transport := &http.Transport{
+		MaxIdleConnsPerHost: 100,
+		IdleConnTimeout:     90 * time.Second,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+	}
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   30 * time.Second,
+	}
+	return &Client{client: client}
 }
 
 func (c *Client) Fetch(config map[string]interface{}) error {
@@ -46,11 +61,17 @@ func (c *Client) Fetch(config map[string]interface{}) error {
 		}
 	}
 
-	_, err = c.client.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		log.Println("Request failed with error:", err)
 		return err
 	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			return
+		}
+	}(resp.Body)
 
 	return nil
 }
