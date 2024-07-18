@@ -2,6 +2,7 @@ package http
 
 import (
 	"github.com/dop251/goja"
+	"github.com/joakimcarlsson/yalt/internal/metrics"
 	"log"
 	"net"
 	"net/http"
@@ -14,7 +15,7 @@ type Client struct {
 }
 
 // NewClient initializes and returns a new Client with custom transport settings
-func NewClient() *Client {
+func NewClient(metrics *metrics.Metrics) *Client {
 	transport := &http.Transport{
 		MaxIdleConnsPerHost:   100,
 		MaxIdleConns:          200,
@@ -27,7 +28,7 @@ func NewClient() *Client {
 		}).DialContext,
 	}
 	client := &http.Client{
-		Transport: transport,
+		Transport: metrics.NewMetricsRoundTripper(transport, metrics),
 		Timeout:   30 * time.Second,
 	}
 	return &Client{client: client}

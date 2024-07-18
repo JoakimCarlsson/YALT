@@ -14,9 +14,8 @@ type UserPool struct {
 func CreatePool(
 	size int,
 	scriptContent []byte,
+	client *http.Client,
 ) (*UserPool, error) {
-	client := http.NewClient()
-
 	pool := &sync.Pool{
 		New: func() interface{} {
 			vu, err := CreateVu(client, scriptContent)

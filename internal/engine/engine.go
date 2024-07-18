@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/dop251/goja"
+	"github.com/joakimcarlsson/yalt/internal/http"
+	"github.com/joakimcarlsson/yalt/internal/metrics"
 	"github.com/joakimcarlsson/yalt/internal/models"
 	"github.com/joakimcarlsson/yalt/internal/virtualuser"
 	"log"
@@ -16,6 +18,7 @@ import (
 type Engine struct {
 	pool    *virtualuser.UserPool
 	options *models.Options
+	metrics *metrics.Metrics
 }
 
 // Run starts the engine, wroom wroom
@@ -27,9 +30,11 @@ func (e *Engine) Run() error {
 		}
 		log.Println("Stage completed")
 	}
+	e.metrics.CalculateAndDisplayMetrics()
 	return nil
 }
 
+// runStage runs a stage with a given target number of virtual users
 func (e *Engine) runStage(stage models.Stage) error {
 	log.Printf("Running stage with target %d for %s\n", stage.Target, stage.Duration)
 	duration, err := time.ParseDuration(stage.Duration)
@@ -67,7 +72,10 @@ func New(scriptPath string) *Engine {
 	}
 
 	maxVuCount := getMaxVuCount(options)
-	pool, err := virtualuser.CreatePool(maxVuCount, scriptContent)
+	metrics := metrics.NewMetrics(options.Thresholds)
+	client := http.NewClient(metrics)
+
+	pool, err := virtualuser.CreatePool(maxVuCount, scriptContent, client)
 	if err != nil {
 		panic(err)
 	}
@@ -75,6 +83,7 @@ func New(scriptPath string) *Engine {
 	return &Engine{
 		pool:    pool,
 		options: options,
+		metrics: metrics,
 	}
 }
 
