@@ -8,17 +8,22 @@ import (
 	"net/http"
 )
 
+// Fetch performs an HTTP request based on the provided configuration
+// Fetch performs an HTTP request based on the provided configuration
 func (c *Client) Fetch(config map[string]interface{}) error {
+	// Extract and validate method
 	method, ok := config["method"].(string)
 	if !ok {
 		method = "GET"
 	}
 
+	// Extract and validate URL
 	url, ok := config["url"].(string)
 	if !ok || url == "" {
 		return errors.New("url is required and must be a string")
 	}
 
+	// Extract body if present
 	var body io.Reader
 	if bodyStr, ok := config["body"].(string); ok {
 		body = bytes.NewBufferString(bodyStr)
@@ -26,12 +31,14 @@ func (c *Client) Fetch(config map[string]interface{}) error {
 		body = nil
 	}
 
+	// Create new HTTP request
 	req, err := http.NewRequest(method, url, body)
 	if err != nil {
 		log.Println("Failed to create request:", err)
 		return err
 	}
 
+	// Set headers if present
 	if headers, ok := config["headers"].(map[string]interface{}); ok {
 		for key, value := range headers {
 			if headerValue, ok := value.(string); ok {
@@ -47,12 +54,7 @@ func (c *Client) Fetch(config map[string]interface{}) error {
 		log.Println("Request failed with error:", err)
 		return err
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			log.Println("Failed to close response body:", err)
-		}
-	}(resp.Body)
+	defer resp.Body.Close()
 
 	_, err = io.Copy(io.Discard, resp.Body)
 	if err != nil {

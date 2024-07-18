@@ -17,9 +17,8 @@ type Engine struct {
 	options *models.Options
 }
 
-// Run starts the engine
+// Run starts the engine wroom. wroom
 func (e Engine) Run() error {
-
 	for _, stage := range e.options.Stages {
 		e.runStage(stage)
 		log.Println("Stage completed")
@@ -27,6 +26,7 @@ func (e Engine) Run() error {
 	return nil
 }
 
+// runStage runs a stage
 func (e Engine) runStage(stage models.Stage) {
 	log.Printf("Running stage with target %d for %s\n", stage.Target, stage.Duration)
 	duration, _ := time.ParseDuration(stage.Duration)
@@ -40,10 +40,10 @@ func (e Engine) runStage(stage models.Stage) {
 			user := e.pool.Fetch()
 			err := user.Run(duration)
 			if err != nil {
-				return
+				log.Printf("Error running virtual user: %v", err)
 			}
+			e.pool.Return(user)
 		}()
-
 	}
 
 	wg.Wait()
@@ -73,7 +73,9 @@ func New(scriptPath string) *Engine {
 func getMaxVuCount(options *models.Options) int {
 	maxVuCount := 0
 	for _, stage := range options.Stages {
-		maxVuCount += stage.Target
+		if stage.Target > maxVuCount {
+			maxVuCount = stage.Target
+		}
 	}
 	return maxVuCount
 }

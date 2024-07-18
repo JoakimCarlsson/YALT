@@ -16,8 +16,11 @@ type Client struct {
 // NewClient initializes and returns a new Client with custom transport settings
 func NewClient() *Client {
 	transport := &http.Transport{
-		MaxIdleConnsPerHost: 100,
-		IdleConnTimeout:     90 * time.Second,
+		MaxIdleConnsPerHost:   100,
+		MaxIdleConns:          200,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,

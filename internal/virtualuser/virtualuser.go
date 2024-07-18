@@ -14,14 +14,19 @@ type VirtualUser struct {
 	clientObject goja.Value
 }
 
-// Run runs the virtual user for the specified duration.
+// Run runs the virtual user for the specified duration, sending 1 request per second.
 func (vu *VirtualUser) Run(duration time.Duration) error {
 	end := time.Now().Add(duration)
 	for time.Now().Before(end) {
-		if _, err := vu.loadTestFunc(goja.Undefined(), vu.clientObject); err != nil {
+		start := time.Now()
+		_, err := vu.loadTestFunc(goja.Undefined(), vu.clientObject)
+		if err != nil {
 			log.Printf("Error running load test function: %v", err)
 		}
-		time.Sleep(time.Second)
+		elapsed := time.Since(start)
+		if sleepDuration := time.Second - elapsed; sleepDuration > 0 {
+			time.Sleep(sleepDuration)
+		}
 	}
 	return nil
 }
