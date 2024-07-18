@@ -17,8 +17,8 @@ type Engine struct {
 	options *models.Options
 }
 
-// Run starts the engine wroom. wroom
-func (e Engine) Run() error {
+// Run starts the engine, wroom wroom
+func (e *Engine) Run() error {
 	for _, stage := range e.options.Stages {
 		e.runStage(stage)
 		log.Println("Stage completed")
@@ -26,15 +26,14 @@ func (e Engine) Run() error {
 	return nil
 }
 
-// runStage runs a stage
-func (e Engine) runStage(stage models.Stage) {
+func (e *Engine) runStage(stage models.Stage) {
 	log.Printf("Running stage with target %d for %s\n", stage.Target, stage.Duration)
 	duration, _ := time.ParseDuration(stage.Duration)
 
 	var wg sync.WaitGroup
+	wg.Add(stage.Target)
 
 	for i := 0; i < stage.Target; i++ {
-		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			user := e.pool.Fetch()
@@ -52,7 +51,6 @@ func (e Engine) runStage(stage models.Stage) {
 // New creates a new Engine instance
 func New(scriptPath string) *Engine {
 	options, scriptContent, err := extractOptions(scriptPath)
-
 	if err != nil {
 		panic(err)
 	}
@@ -64,8 +62,8 @@ func New(scriptPath string) *Engine {
 	}
 
 	return &Engine{
-		pool,
-		options,
+		pool:    pool,
+		options: options,
 	}
 }
 

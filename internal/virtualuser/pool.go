@@ -3,12 +3,11 @@ package virtualuser
 import (
 	"fmt"
 	"github.com/joakimcarlsson/yalt/internal/http"
-	"sync"
 )
 
+// UserPool represents a pool of VirtualUsers.
 type UserPool struct {
 	pool chan *VirtualUser
-	mu   sync.Mutex
 }
 
 // CreatePool creates a new UserPool.
@@ -35,16 +34,10 @@ func CreatePool(
 
 // Fetch retrieves a VirtualUser from the pool.
 func (p *UserPool) Fetch() *VirtualUser {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	return <-p.pool
 }
 
 // Return returns a VirtualUser to the pool.
 func (p *UserPool) Return(user *VirtualUser) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	p.pool <- user
 }

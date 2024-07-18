@@ -16,17 +16,16 @@ type VirtualUser struct {
 
 // Run runs the virtual user for the specified duration, sending 1 request per second.
 func (vu *VirtualUser) Run(duration time.Duration) error {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
 	end := time.Now().Add(duration)
 	for time.Now().Before(end) {
-		start := time.Now()
 		_, err := vu.loadTestFunc(goja.Undefined(), vu.clientObject)
 		if err != nil {
 			log.Printf("Error running load test function: %v", err)
 		}
-		elapsed := time.Since(start)
-		if sleepDuration := time.Second - elapsed; sleepDuration > 0 {
-			time.Sleep(sleepDuration)
-		}
+		<-ticker.C
 	}
 	return nil
 }
