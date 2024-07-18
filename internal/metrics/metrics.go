@@ -53,12 +53,11 @@ func (m *Metrics) CalculateAndDisplayMetrics() {
 		return durations[i] < durations[j]
 	})
 
-	avgDuration := totalDuration / time.Duration(totalRequests)
 	minDuration := durations[0]
 	maxDuration := durations[len(durations)-1]
 	failureRate := float64(failedRequests) / float64(totalRequests)
 
-	m.evaluateThresholds(totalRequests, failedRequests, failureRate, avgDuration, minDuration, maxDuration, durations)
+	m.evaluateThresholds(failureRate, minDuration, maxDuration, durations)
 }
 
 func calculatePercentile(durations []time.Duration, percentile int) time.Duration {
@@ -66,7 +65,7 @@ func calculatePercentile(durations []time.Duration, percentile int) time.Duratio
 	return durations[index]
 }
 
-func (m *Metrics) evaluateThresholds(totalRequests, failedRequests int, failureRate float64, avgDuration, minDuration, maxDuration time.Duration, durations []time.Duration) {
+func (m *Metrics) evaluateThresholds(failureRate float64, minDuration, maxDuration time.Duration, durations []time.Duration) {
 	for key, conditions := range m.thresholds {
 		for _, condition := range conditions {
 			if key == "http_req_duration" {
