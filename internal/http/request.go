@@ -9,31 +9,36 @@ import (
 )
 
 func (c *Client) Fetch(config map[string]interface{}) error {
-	method := "GET"
-	if config["method"] != nil {
-		method = config["method"].(string)
+	method, ok := config["method"].(string)
+	if !ok {
+		method = "GET"
 	}
 
-	url := config["url"].(string)
-	if url == "" {
-		return errors.New("url is required")
+	url, ok := config["url"].(string)
+	if !ok || url == "" {
+		return errors.New("url is required and must be a string")
 	}
 
-	var body []byte
-	if config["body"] != nil {
-		body = []byte(config["body"].(string))
+	var body io.Reader
+	if bodyStr, ok := config["body"].(string); ok {
+		body = bytes.NewBufferString(bodyStr)
+	} else {
+		body = nil
 	}
 
-	req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
+	req, err := http.NewRequest(method, url, body)
 	if err != nil {
 		log.Println("Failed to create request:", err)
 		return err
 	}
 
-	if config["headers"] != nil {
-		headers := config["headers"].(map[string]interface{})
+	if headers, ok := config["headers"].(map[string]interface{}); ok {
 		for key, value := range headers {
-			req.Header.Set(key, value.(string))
+			if headerValue, ok := value.(string); ok {
+				req.Header.Set(key, headerValue)
+			} else {
+				log.Println("Invalid header value for key:", key)
+			}
 		}
 	}
 
@@ -45,9 +50,15 @@ func (c *Client) Fetch(config map[string]interface{}) error {
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
-			return
+			log.Println("Failed to close response body:", err)
 		}
 	}(resp.Body)
+
+	_, err = io.Copy(io.Discard, resp.Body)
+	if err != nil {
+		log.Println("Failed to read response body:", err)
+		return err
+	}
 
 	return nil
 }

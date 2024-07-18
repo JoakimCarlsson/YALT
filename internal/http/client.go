@@ -1,18 +1,19 @@
 package http
 
 import (
+	"github.com/dop251/goja"
 	"log"
 	"net"
 	"net/http"
 	"time"
-
-	"github.com/dop251/goja"
 )
 
+// Client wraps an HTTP client with custom settings
 type Client struct {
 	client *http.Client
 }
 
+// NewClient initializes and returns a new Client with custom transport settings
 func NewClient() *Client {
 	transport := &http.Transport{
 		MaxIdleConnsPerHost: 100,
@@ -29,17 +30,20 @@ func NewClient() *Client {
 	return &Client{client: client}
 }
 
-func RegisterClientMethods(
-	vm *goja.Runtime,
-	client *Client,
-) error {
+// RegisterClientMethods registers the fetch method of the Client in the Goja runtime
+func RegisterClientMethods(vm *goja.Runtime, client *Client) error {
 	clientObj := vm.NewObject()
 	err := clientObj.Set("fetch", func(call goja.FunctionCall) goja.Value {
-		config := call.Argument(0).Export().(map[string]interface{})
+		config, ok := call.Argument(0).Export().(map[string]interface{})
+		if !ok {
+			log.Println("Invalid argument type, expected map[string]interface{}")
+			return vm.ToValue("Invalid argument type")
+		}
 
 		err := client.Fetch(config)
 		if err != nil {
 			log.Println("Error performing request:", err)
+			return vm.ToValue("Error performing request: " + err.Error())
 		}
 
 		return goja.Undefined()
@@ -47,6 +51,7 @@ func RegisterClientMethods(
 	if err != nil {
 		return err
 	}
+
 	err = vm.Set("client", clientObj)
 	if err != nil {
 		return err
