@@ -1,15 +1,16 @@
 package main
 
-type Options struct {
-	Thresholds map[string][]string `json:"thresholds"`
-	Stages     []Stage             `json:"stages"`
-}
-
-type Stage struct {
-	Duration string `json:"duration"`
-	Target   int    `json:"target"`
-}
+import (
+	"github.com/joakimcarlsson/yalt/internal/engine"
+)
 
 func main() {
+	scriptFile := "C:\\Users\\JCarlsson\\Documents\\Test\\test.js" //todo read from command line
 
+	runtime := engine.New(scriptFile)
+
+	err := runtime.Run()
+	if err != nil {
+		panic(err)
+	}
 }
