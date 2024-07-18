@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/dop251/goja"
+	"github.com/joakimcarlsson/yalt/internal/metrics"
 	"github.com/joakimcarlsson/yalt/internal/models"
 	"github.com/joakimcarlsson/yalt/internal/virtualuser"
 	"log"
@@ -21,13 +22,21 @@ type Engine struct {
 // Run starts the engine, wroom wroom
 func (e *Engine) Run() error {
 	for _, stage := range e.options.Stages {
-		if err := e.runStage(stage); err != nil {
-			log.Printf("Stage failed: %v", err)
+		err := e.runStage(stage)
+		if err != nil {
 			return err
 		}
 		log.Println("Stage completed")
 	}
+	e.calculateAndDisplayMetrics()
 	return nil
+}
+
+func (e *Engine) calculateAndDisplayMetrics() {
+	metricsData := metrics.GetMetrics().CalculateMetrics()
+	for key, value := range metricsData {
+		log.Printf("%s: %v\n", key, value)
+	}
 }
 
 func (e *Engine) runStage(stage models.Stage) error {

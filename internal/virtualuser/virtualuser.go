@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/dop251/goja"
 	"github.com/joakimcarlsson/yalt/internal/http"
+	"github.com/joakimcarlsson/yalt/internal/metrics"
 	"log"
 	"time"
 )
@@ -25,7 +26,10 @@ func (vu *VirtualUser) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
+			start := time.Now()
 			_, err := vu.loadTestFunc(goja.Undefined(), vu.clientObject)
+			duration := time.Since(start)
+			metrics.GetMetrics().AddHttpReqDuration(duration)
 			if err != nil {
 				log.Printf("Error running load test function: %v", err)
 			}
