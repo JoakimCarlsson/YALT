@@ -1,6 +1,7 @@
 package virtualuser
 
 import (
+	"context"
 	"fmt"
 	"github.com/dop251/goja"
 	"github.com/joakimcarlsson/yalt/internal/http"
@@ -15,19 +16,21 @@ type VirtualUser struct {
 }
 
 // Run runs the virtual user for the specified duration, sending 1 request per second.
-func (vu *VirtualUser) Run(duration time.Duration) error {
+func (vu *VirtualUser) Run(ctx context.Context) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
-	end := time.Now().Add(duration)
-	for time.Now().Before(end) {
-		_, err := vu.loadTestFunc(goja.Undefined(), vu.clientObject)
-		if err != nil {
-			log.Printf("Error running load test function: %v", err)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			_, err := vu.loadTestFunc(goja.Undefined(), vu.clientObject)
+			if err != nil {
+				log.Printf("Error running load test function: %v", err)
+			}
 		}
-		<-ticker.C
 	}
-	return nil
 }
 
 // CreateVu creates a new VirtualUser.

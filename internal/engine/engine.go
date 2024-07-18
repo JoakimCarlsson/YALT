@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/dop251/goja"
@@ -20,15 +21,24 @@ type Engine struct {
 // Run starts the engine, wroom wroom
 func (e *Engine) Run() error {
 	for _, stage := range e.options.Stages {
-		e.runStage(stage)
+		if err := e.runStage(stage); err != nil {
+			log.Printf("Stage failed: %v", err)
+			return err
+		}
 		log.Println("Stage completed")
 	}
 	return nil
 }
 
-func (e *Engine) runStage(stage models.Stage) {
+func (e *Engine) runStage(stage models.Stage) error {
 	log.Printf("Running stage with target %d for %s\n", stage.Target, stage.Duration)
-	duration, _ := time.ParseDuration(stage.Duration)
+	duration, err := time.ParseDuration(stage.Duration)
+	if err != nil {
+		return fmt.Errorf("invalid duration format: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	defer cancel()
 
 	var wg sync.WaitGroup
 	wg.Add(stage.Target)
@@ -37,7 +47,7 @@ func (e *Engine) runStage(stage models.Stage) {
 		go func() {
 			defer wg.Done()
 			user := e.pool.Fetch()
-			err := user.Run(duration)
+			err := user.Run(ctx)
 			if err != nil {
 				log.Printf("Error running virtual user: %v", err)
 			}
@@ -46,6 +56,7 @@ func (e *Engine) runStage(stage models.Stage) {
 	}
 
 	wg.Wait()
+	return nil
 }
 
 // New creates a new Engine instance

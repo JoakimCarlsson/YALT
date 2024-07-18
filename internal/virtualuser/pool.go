@@ -1,13 +1,13 @@
 package virtualuser
 
 import (
-	"fmt"
 	"github.com/joakimcarlsson/yalt/internal/http"
+	"sync"
 )
 
 // UserPool represents a pool of VirtualUsers.
 type UserPool struct {
-	pool chan *VirtualUser
+	pool *sync.Pool
 }
 
 // CreatePool creates a new UserPool.
@@ -15,29 +15,33 @@ func CreatePool(
 	size int,
 	scriptContent []byte,
 ) (*UserPool, error) {
-	p := &UserPool{
-		pool: make(chan *VirtualUser, size),
-	}
-
 	client := http.NewClient()
 
-	for i := 0; i < size; i++ {
-		vu, err := CreateVu(client, scriptContent)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create virtual user: %w", err)
-		}
-		p.pool <- vu
+	pool := &sync.Pool{
+		New: func() interface{} {
+			vu, err := CreateVu(client, scriptContent)
+			if err != nil {
+				panic(err)
+			}
+			return vu
+		},
 	}
 
-	return p, nil
+	for i := 0; i < size; i++ {
+		pool.Put(pool.New())
+	}
+
+	return &UserPool{
+		pool: pool,
+	}, nil
 }
 
 // Fetch retrieves a VirtualUser from the pool.
 func (p *UserPool) Fetch() *VirtualUser {
-	return <-p.pool
+	return p.pool.Get().(*VirtualUser)
 }
 
 // Return returns a VirtualUser to the pool.
 func (p *UserPool) Return(user *VirtualUser) {
-	p.pool <- user
+	p.pool.Put(user)
 }
