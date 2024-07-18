@@ -127,8 +127,6 @@ func extractOptions(scriptPath string) (*models.Options, []byte, error) {
 		return nil, nil, err
 	}
 
-	log.Println("Options JSON:", string(optionsJSON))
-
 	var options models.Options
 	err = json.Unmarshal(optionsJSON, &options)
 	if err != nil {

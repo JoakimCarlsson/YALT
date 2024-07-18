@@ -19,21 +19,18 @@ type RequestMetrics struct {
 	Failed   bool
 }
 
-// NewMetrics creates a new Metrics instance
 func NewMetrics(thresholds map[string][]string) *Metrics {
 	return &Metrics{
 		thresholds: thresholds,
 	}
 }
 
-// AddRequestMetrics adds a request metric to the metrics
 func (m *Metrics) AddRequestMetrics(duration time.Duration, failed bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.requests = append(m.requests, RequestMetrics{Duration: duration, Failed: failed})
 }
 
-// CalculateAndDisplayMetrics calculates and displays the metrics
 func (m *Metrics) CalculateAndDisplayMetrics() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -56,19 +53,20 @@ func (m *Metrics) CalculateAndDisplayMetrics() {
 		return durations[i] < durations[j]
 	})
 
+	avgDuration := totalDuration / time.Duration(totalRequests)
+	minDuration := durations[0]
+	maxDuration := durations[len(durations)-1]
 	failureRate := float64(failedRequests) / float64(totalRequests)
 
-	m.evaluateThresholds(failureRate, durations)
+	m.evaluateThresholds(totalRequests, failedRequests, failureRate, avgDuration, minDuration, maxDuration, durations)
 }
 
-// calculatePercentile calculates the value at a given percentile in a slice of durations
 func calculatePercentile(durations []time.Duration, percentile int) time.Duration {
 	index := int((float64(percentile) / 100) * float64(len(durations)-1))
 	return durations[index]
 }
 
-// evaluateThresholds evaluates the thresholds defined in the metrics configuration
-func (m *Metrics) evaluateThresholds(failureRate float64, durations []time.Duration) {
+func (m *Metrics) evaluateThresholds(totalRequests, failedRequests int, failureRate float64, avgDuration, minDuration, maxDuration time.Duration, durations []time.Duration) {
 	for key, conditions := range m.thresholds {
 		for _, condition := range conditions {
 			if key == "http_req_duration" {
@@ -78,6 +76,10 @@ func (m *Metrics) evaluateThresholds(failureRate float64, durations []time.Durat
 				if _, err := fmt.Sscanf(condition, "p(%d) %s %d", &percentile, &operator, &threshold); err == nil {
 					value := calculatePercentile(durations, percentile)
 					m.evaluateCondition(fmt.Sprintf("http_req_duration p(%d)", percentile), value.Milliseconds(), operator, int64(threshold))
+				} else if _, err := fmt.Sscanf(condition, "min %s %d", &operator, &threshold); err == nil {
+					m.evaluateCondition("http_req_duration min", minDuration.Milliseconds(), operator, int64(threshold))
+				} else if _, err := fmt.Sscanf(condition, "max %s %d", &operator, &threshold); err == nil {
+					m.evaluateCondition("http_req_duration max", maxDuration.Milliseconds(), operator, int64(threshold))
 				}
 			} else if key == "http_req_failed" {
 				var operator string
@@ -90,7 +92,6 @@ func (m *Metrics) evaluateThresholds(failureRate float64, durations []time.Durat
 	}
 }
 
-// evaluateCondition evaluates a condition based on a metric, an operator and a threshold
 func (m *Metrics) evaluateCondition(metric string, value interface{}, operator string, threshold interface{}) {
 	pass := false
 	switch v := value.(type) {
