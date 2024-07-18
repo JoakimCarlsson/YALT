@@ -19,19 +19,14 @@ type RequestMetrics struct {
 	Failed   bool
 }
 
-// NewMetrics creates a new Metrics instance with the given thresholds
+// NewMetrics creates a new Metrics instance
 func NewMetrics(thresholds map[string][]string) *Metrics {
 	return &Metrics{
 		thresholds: thresholds,
 	}
 }
 
-// Start starts the timer for the Metrics instance
-func (m *Metrics) Start() {
-	m.startTime = time.Now()
-}
-
-// AddRequestMetrics adds a new RequestMetrics instance to the Metrics instance
+// AddRequestMetrics adds a request metric to the metrics
 func (m *Metrics) AddRequestMetrics(duration time.Duration, failed bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -61,42 +56,77 @@ func (m *Metrics) CalculateAndDisplayMetrics() {
 		return durations[i] < durations[j]
 	})
 
-	avgDuration := totalDuration / time.Duration(totalRequests)
 	failureRate := float64(failedRequests) / float64(totalRequests)
 
-	fmt.Printf("Total Requests: %d\n", totalRequests)
-	fmt.Printf("Failed Requests: %d\n", failedRequests)
-	fmt.Printf("Failure Rate: %.2f%%\n", failureRate*100)
-	fmt.Printf("Average Request Duration: %s\n", avgDuration)
-
-	percentiles := m.extractPercentilesFromThresholds()
-	for _, percentile := range percentiles {
-		value := calculatePercentile(durations, percentile)
-		fmt.Printf("%dth Percentile Request Duration: %s\n", percentile, value)
-	}
+	m.evaluateThresholds(failureRate, durations)
 }
 
-func (m *Metrics) extractPercentilesFromThresholds() []int {
-	percentileSet := make(map[int]struct{})
-	for key := range m.thresholds {
-		if key == "http_req_duration" {
-			for _, condition := range m.thresholds[key] {
+// calculatePercentile calculates the value at a given percentile in a slice of durations
+func calculatePercentile(durations []time.Duration, percentile int) time.Duration {
+	index := int((float64(percentile) / 100) * float64(len(durations)-1))
+	return durations[index]
+}
+
+// evaluateThresholds evaluates the thresholds defined in the metrics configuration
+func (m *Metrics) evaluateThresholds(failureRate float64, durations []time.Duration) {
+	for key, conditions := range m.thresholds {
+		for _, condition := range conditions {
+			if key == "http_req_duration" {
 				var percentile int
-				if _, err := fmt.Sscanf(condition, "p(%d)", &percentile); err == nil {
-					percentileSet[percentile] = struct{}{}
+				var operator string
+				var threshold int
+				if _, err := fmt.Sscanf(condition, "p(%d) %s %d", &percentile, &operator, &threshold); err == nil {
+					value := calculatePercentile(durations, percentile)
+					m.evaluateCondition(fmt.Sprintf("http_req_duration p(%d)", percentile), value.Milliseconds(), operator, int64(threshold))
+				}
+			} else if key == "http_req_failed" {
+				var operator string
+				var threshold float64
+				if _, err := fmt.Sscanf(condition, "rate%s%f", &operator, &threshold); err == nil {
+					m.evaluateCondition("http_req_failed rate", failureRate, operator, threshold)
 				}
 			}
 		}
 	}
-	var percentiles []int
-	for percentile := range percentileSet {
-		percentiles = append(percentiles, percentile)
-	}
-	sort.Ints(percentiles)
-	return percentiles
 }
 
-func calculatePercentile(durations []time.Duration, percentile int) time.Duration {
-	index := int((float64(percentile) / 100) * float64(len(durations)-1))
-	return durations[index]
+// evaluateCondition evaluates a condition based on a metric, an operator and a threshold
+func (m *Metrics) evaluateCondition(metric string, value interface{}, operator string, threshold interface{}) {
+	pass := false
+	switch v := value.(type) {
+	case int64:
+		t := threshold.(int64)
+		switch operator {
+		case "<":
+			pass = v < t
+		case "<=":
+			pass = v <= t
+		case ">":
+			pass = v > t
+		case ">=":
+			pass = v >= t
+		case "==":
+			pass = v == t
+		}
+	case float64:
+		t := threshold.(float64)
+		switch operator {
+		case "<":
+			pass = v < t
+		case "<=":
+			pass = v <= t
+		case ">":
+			pass = v > t
+		case ">=":
+			pass = v >= t
+		case "==":
+			pass = v == t
+		}
+	}
+
+	if pass {
+		fmt.Printf("%s %s %v: PASS (value: %v)\n", metric, operator, threshold, value)
+	} else {
+		fmt.Printf("%s %s %v: FAIL (value: %v)\n", metric, operator, threshold, value)
+	}
 }

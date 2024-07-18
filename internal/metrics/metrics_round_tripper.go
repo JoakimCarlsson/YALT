@@ -5,25 +5,29 @@ import (
 	"time"
 )
 
-type MetricsRoundTripper struct {
-	original http.RoundTripper
-	metrics  *Metrics
+// RoundTripper is a custom RoundTripper that records metrics for each HTTP request.
+type RoundTripper struct {
+	original http.RoundTripper // The original RoundTripper to delegate to
+	metrics  *Metrics          // The Metrics instance to record metrics
 }
 
-func (m *Metrics) NewMetricsRoundTripper(transport *http.Transport, metrics *Metrics) http.RoundTripper {
-	return &MetricsRoundTripper{
+// NewRoundTripper creates a new instance of RoundTripper.
+func NewRoundTripper(transport *http.Transport, metrics *Metrics) http.RoundTripper {
+	return &RoundTripper{
 		original: transport,
 		metrics:  metrics,
 	}
 }
 
-func (mrt *MetricsRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+// RoundTrip executes a single HTTP transaction and records metrics.
+func (rt *RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	startTime := time.Now()
-	resp, err := mrt.original.RoundTrip(req)
+	resp, err := rt.original.RoundTrip(req)
 	duration := time.Since(startTime)
 
 	failed := err != nil || (resp != nil && resp.StatusCode >= 400)
-	mrt.metrics.AddRequestMetrics(duration, failed)
+
+	rt.metrics.AddRequestMetrics(duration, failed)
 
 	return resp, err
 }
