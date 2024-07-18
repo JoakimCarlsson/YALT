@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/dop251/goja"
-	"github.com/joakimcarlsson/yalt/internal/metrics"
 	"github.com/joakimcarlsson/yalt/internal/models"
 	"github.com/joakimcarlsson/yalt/internal/virtualuser"
 	"log"
@@ -28,15 +27,7 @@ func (e *Engine) Run() error {
 		}
 		log.Println("Stage completed")
 	}
-	e.calculateAndDisplayMetrics()
 	return nil
-}
-
-func (e *Engine) calculateAndDisplayMetrics() {
-	metricsData := metrics.GetMetrics().CalculateMetrics()
-	for key, value := range metricsData {
-		log.Printf("%s: %v\n", key, value)
-	}
 }
 
 func (e *Engine) runStage(stage models.Stage) error {
