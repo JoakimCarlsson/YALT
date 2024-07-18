@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// Metrics represents a collection of request metrics
 type Metrics struct {
 	mu         sync.Mutex
 	requests   []RequestMetrics
@@ -14,23 +15,27 @@ type Metrics struct {
 	startTime  time.Time
 }
 
+// RequestMetrics represents a single request metric
 type RequestMetrics struct {
 	Duration time.Duration
 	Failed   bool
 }
 
+// NewMetrics creates a new Metrics instance
 func NewMetrics(thresholds map[string][]string) *Metrics {
 	return &Metrics{
 		thresholds: thresholds,
 	}
 }
 
+// AddRequestMetrics adds a new request metric
 func (m *Metrics) AddRequestMetrics(duration time.Duration, failed bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.requests = append(m.requests, RequestMetrics{Duration: duration, Failed: failed})
 }
 
+// CalculateAndDisplayMetrics calculates and displays the metrics
 func (m *Metrics) CalculateAndDisplayMetrics() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -60,11 +65,13 @@ func (m *Metrics) CalculateAndDisplayMetrics() {
 	m.evaluateThresholds(failureRate, minDuration, maxDuration, durations)
 }
 
+// calculatePercentile calculates the value at a given percentile
 func calculatePercentile(durations []time.Duration, percentile int) time.Duration {
 	index := int((float64(percentile) / 100) * float64(len(durations)-1))
 	return durations[index]
 }
 
+// evaluateThresholds evaluates the defined thresholds against the calculated metrics
 func (m *Metrics) evaluateThresholds(failureRate float64, minDuration, maxDuration time.Duration, durations []time.Duration) {
 	for key, conditions := range m.thresholds {
 		for _, condition := range conditions {
@@ -91,6 +98,7 @@ func (m *Metrics) evaluateThresholds(failureRate float64, minDuration, maxDurati
 	}
 }
 
+// evaluateCondition evaluates a single condition against a metric
 func (m *Metrics) evaluateCondition(metric string, value interface{}, operator string, threshold interface{}) {
 	pass := false
 	switch v := value.(type) {
