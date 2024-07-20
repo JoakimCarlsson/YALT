@@ -16,15 +16,15 @@ type VirtualUser struct {
 }
 
 // Run runs the virtual user for the specified duration, sending requests.
-func (vu *VirtualUser) Run(ctx context.Context) {
+func (vu *VirtualUser) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		default:
-			_, err := vu.loadTestFunc(goja.Undefined(), vu.clientObject)
-			if err != nil {
+			if _, err := vu.loadTestFunc(goja.Undefined(), vu.clientObject); err != nil {
 				log.Printf("Error running load test function: %v", err)
+				return fmt.Errorf("error running load test function: %w", err)
 			}
 			time.Sleep(time.Second)
 		}
@@ -47,7 +47,7 @@ func CreateVu(
 
 	loadTestFunc, err := getLoadTestFunc(runtime)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error getting load test function: %w", err)
 	}
 
 	clientObject := runtime.GlobalObject().Get("client")

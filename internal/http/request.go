@@ -3,12 +3,12 @@ package http
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 )
 
-// Fetch performs an HTTP request based on the provided configuration
 // Fetch performs an HTTP request based on the provided configuration
 func (c *Client) Fetch(config map[string]interface{}) error {
 	// Extract and validate method
@@ -35,7 +35,7 @@ func (c *Client) Fetch(config map[string]interface{}) error {
 	req, err := http.NewRequest(method, url, body)
 	if err != nil {
 		log.Println("Failed to create request:", err)
-		return err
+		return fmt.Errorf("error creating request: %w", err)
 	}
 
 	// Set headers if present
@@ -52,14 +52,13 @@ func (c *Client) Fetch(config map[string]interface{}) error {
 	resp, err := c.client.Do(req)
 	if err != nil {
 		log.Println("Request failed with error:", err)
-		return err
+		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	_, err = io.Copy(io.Discard, resp.Body)
-	if err != nil {
+	if _, err = io.Copy(io.Discard, resp.Body); err != nil {
 		log.Println("Failed to read response body:", err)
-		return err
+		return fmt.Errorf("error reading response body: %w", err)
 	}
 
 	return nil

@@ -24,9 +24,8 @@ type Engine struct {
 // Run starts the engine
 func (e *Engine) Run() error {
 	for _, stage := range e.options.Stages {
-		err := e.runStage(stage)
-		if err != nil {
-			return err
+		if err := e.runStage(stage); err != nil {
+			return fmt.Errorf("error running stage: %w", err)
 		}
 		log.Println("Stage completed")
 	}
@@ -55,8 +54,7 @@ func (e *Engine) runStage(stage models.Stage) error {
 			user := e.pool.Fetch()
 			defer e.pool.Return(user)
 			for range taskChan {
-				user.Run(ctx)
-				if err != nil {
+				if err := user.Run(ctx); err != nil {
 					log.Printf("Error running virtual user: %v", err)
 				}
 			}
@@ -74,17 +72,23 @@ func (e *Engine) runStage(stage models.Stage) error {
 			return nil
 		case <-ticker.C:
 			for i := 0; i < stage.Target; i++ {
-				taskChan <- struct{}{}
+				select {
+				case taskChan <- struct{}{}:
+				case <-ctx.Done():
+					close(taskChan)
+					wg.Wait()
+					return nil
+				}
 			}
 		}
 	}
 }
 
 // New creates a new Engine instance
-func New(scriptPath string) *Engine {
+func New(scriptPath string) (*Engine, error) {
 	options, scriptContent, err := extractOptions(scriptPath)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("error extracting options: %w", err)
 	}
 
 	maxVuCount := getMaxVuCount(options)
@@ -93,14 +97,14 @@ func New(scriptPath string) *Engine {
 
 	pool, err := virtualuser.CreatePool(maxVuCount, scriptContent, client)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("error creating user pool: %w", err)
 	}
 
 	return &Engine{
 		pool:    pool,
 		options: options,
 		metrics: metrics,
-	}
+	}, nil
 }
 
 // getMaxVuCount calculates the maximum number of virtual users
@@ -123,12 +127,11 @@ func extractOptions(scriptPath string) (*models.Options, []byte, error) {
 
 	script, err := os.ReadFile(scriptPath)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("error reading script file: %w", err)
 	}
 
-	_, err = vm.RunString(string(script))
-	if err != nil {
-		return nil, nil, err
+	if _, err = vm.RunString(string(script)); err != nil {
+		return nil, nil, fmt.Errorf("error running script: %w", err)
 	}
 
 	optionsVal := exports.Get("options")
@@ -140,14 +143,13 @@ func extractOptions(scriptPath string) (*models.Options, []byte, error) {
 	optionsJSON, err := json.Marshal(optionsVal)
 	if err != nil {
 		log.Println("failed to marshal options to JSON:", err)
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("error marshaling options: %w", err)
 	}
 
 	var options models.Options
-	err = json.Unmarshal(optionsJSON, &options)
-	if err != nil {
+	if err := json.Unmarshal(optionsJSON, &options); err != nil {
 		log.Println("failed to unmarshal options JSON:", err)
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("error unmarshaling options: %w", err)
 	}
 
 	return &options, script, nil
