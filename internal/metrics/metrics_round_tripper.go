@@ -12,7 +12,10 @@ type RoundTripper struct {
 }
 
 // NewMetricsRoundTripper creates a new RoundTripper with metrics
-func (m *Metrics) NewMetricsRoundTripper(transport *http.Transport, metrics *Metrics) http.RoundTripper {
+func (m *Metrics) NewMetricsRoundTripper(
+	transport *http.Transport,
+	metrics *Metrics,
+) http.RoundTripper {
 	return &RoundTripper{
 		original: transport,
 		metrics:  metrics,

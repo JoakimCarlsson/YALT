@@ -17,7 +17,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	runtime := engine.New(*scriptFile)
+	runtime, err := engine.New(*scriptFile)
+	if err != nil {
+		log.Fatalf("Error creating engine: %v", err)
+	}
 
 	if err := runtime.Run(); err != nil {
 		log.Fatalf("Error running the engine: %v", err)

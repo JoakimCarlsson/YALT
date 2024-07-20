@@ -2,17 +2,16 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"github.com/dop251/goja"
+	"log"
+	"sync"
+	"time"
+
+	"github.com/joakimcarlsson/yalt/internal/config"
 	"github.com/joakimcarlsson/yalt/internal/http"
 	"github.com/joakimcarlsson/yalt/internal/metrics"
 	"github.com/joakimcarlsson/yalt/internal/models"
 	"github.com/joakimcarlsson/yalt/internal/virtualuser"
-	"log"
-	"os"
-	"sync"
-	"time"
 )
 
 type Engine struct {
@@ -21,12 +20,11 @@ type Engine struct {
 	metrics *metrics.Metrics
 }
 
-// Run starts the engine, wroom wroom
+// Run starts the engine
 func (e *Engine) Run() error {
 	for _, stage := range e.options.Stages {
-		err := e.runStage(stage)
-		if err != nil {
-			return err
+		if err := e.runStage(stage); err != nil {
+			return fmt.Errorf("error running stage: %w", err)
 		}
 		log.Println("Stage completed")
 	}
@@ -37,38 +35,98 @@ func (e *Engine) Run() error {
 // runStage runs a stage with a given target number of virtual users
 func (e *Engine) runStage(stage models.Stage) error {
 	log.Printf("Running stage with target %d for %s\n", stage.Target, stage.Duration)
-	duration, err := time.ParseDuration(stage.Duration)
-	if err != nil {
-		return fmt.Errorf("invalid duration format: %w", err)
-	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	ctx, cancel, taskChan, ticker, err := e.initializeStage(stage)
+	if err != nil {
+		return err
+	}
 	defer cancel()
+	defer ticker.Stop()
 
 	var wg sync.WaitGroup
-	wg.Add(stage.Target)
 
-	for i := 0; i < stage.Target; i++ {
-		go func() {
-			defer wg.Done()
-			user := e.pool.Fetch()
-			err := user.Run(ctx)
-			if err != nil {
-				log.Printf("Error running virtual user: %v", err)
-			}
-			e.pool.Return(user)
-		}()
-	}
+	e.startVirtualUsers(&wg, stage.Target, taskChan, ctx)
+
+	e.dispatchTasks(ctx, taskChan, ticker, stage.Target)
 
 	wg.Wait()
 	return nil
 }
 
-// New creates a new Engine instance
-func New(scriptPath string) *Engine {
-	options, scriptContent, err := extractOptions(scriptPath)
+// initializeStage initializes the stage with context, channel, and ticker
+func (e *Engine) initializeStage(stage models.Stage) (
+	context.Context,
+	context.CancelFunc,
+	chan struct{},
+	*time.Ticker,
+	error,
+) {
+	duration, err := time.ParseDuration(stage.Duration)
 	if err != nil {
-		panic(err)
+		return nil, nil, nil, nil, fmt.Errorf("invalid duration format: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	taskChan := make(chan struct{}, stage.Target)
+	ticker := time.NewTicker(time.Second / time.Duration(stage.Target))
+
+	return ctx, cancel, taskChan, ticker, nil
+}
+
+// startVirtualUsers starts the virtual user goroutines
+func (e *Engine) startVirtualUsers(
+	wg *sync.WaitGroup,
+	target int,
+	taskChan chan struct{},
+	ctx context.Context,
+) {
+	for i := 0; i < target; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			user := e.pool.Fetch()
+			defer e.pool.Return(user)
+			for range taskChan {
+				if err := user.Run(ctx); err != nil {
+					log.Printf("Error running virtual user: %v", err)
+				}
+			}
+		}()
+	}
+}
+
+// dispatchTasks dispatches tasks to virtual users at a controlled rate
+func (e *Engine) dispatchTasks(
+	ctx context.Context,
+	taskChan chan struct{},
+	ticker *time.Ticker,
+	target int,
+) {
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				close(taskChan)
+				return
+			case <-ticker.C:
+				for i := 0; i < target; i++ {
+					select {
+					case taskChan <- struct{}{}:
+					case <-ctx.Done():
+						close(taskChan)
+						return
+					}
+				}
+			}
+		}
+	}()
+}
+
+// New creates a new Engine instance
+func New(scriptPath string) (*Engine, error) {
+	options, scriptContent, err := config.LoadConfig(scriptPath)
+	if err != nil {
+		return nil, fmt.Errorf("error extracting options: %w", err)
 	}
 
 	maxVuCount := getMaxVuCount(options)
@@ -77,14 +135,14 @@ func New(scriptPath string) *Engine {
 
 	pool, err := virtualuser.CreatePool(maxVuCount, scriptContent, client)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("error creating user pool: %w", err)
 	}
 
 	return &Engine{
 		pool:    pool,
 		options: options,
 		metrics: metrics,
-	}
+	}, nil
 }
 
 // getMaxVuCount calculates the maximum number of virtual users
@@ -96,43 +154,4 @@ func getMaxVuCount(options *models.Options) int {
 		}
 	}
 	return maxVuCount
-}
-
-// extractOptions extracts the options from a JavaScript file
-func extractOptions(scriptPath string) (*models.Options, []byte, error) {
-	vm := goja.New()
-
-	exports := vm.NewObject()
-	_ = vm.Set("exports", exports)
-
-	script, err := os.ReadFile(scriptPath)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	_, err = vm.RunString(string(script))
-	if err != nil {
-		return nil, nil, err
-	}
-
-	optionsVal := exports.Get("options")
-	if goja.IsUndefined(optionsVal) {
-		log.Println("options is undefined in the script")
-		return nil, nil, fmt.Errorf("options not found in script")
-	}
-
-	optionsJSON, err := json.Marshal(optionsVal)
-	if err != nil {
-		log.Println("failed to marshal options to JSON:", err)
-		return nil, nil, err
-	}
-
-	var options models.Options
-	err = json.Unmarshal(optionsJSON, &options)
-	if err != nil {
-		log.Println("failed to unmarshal options JSON:", err)
-		return nil, nil, err
-	}
-
-	return &options, script, nil
 }
