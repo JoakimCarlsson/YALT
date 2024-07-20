@@ -55,7 +55,7 @@ func (e *Engine) runStage(stage models.Stage) error {
 			user := e.pool.Fetch()
 			defer e.pool.Return(user)
 			for range taskChan {
-				err := user.Run(ctx)
+				user.Run(ctx)
 				if err != nil {
 					log.Printf("Error running virtual user: %v", err)
 				}
