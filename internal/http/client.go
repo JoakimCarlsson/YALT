@@ -36,7 +36,10 @@ func NewClient(metrics *metrics.Metrics) *Client {
 }
 
 // RegisterClientMethods registers the fetch method of the Client in the Goja runtime
-func RegisterClientMethods(vm *goja.Runtime, client *Client) error {
+func RegisterClientMethods(
+	vm *goja.Runtime,
+	client *Client,
+) error {
 	clientObj := vm.NewObject()
 	if err := clientObj.Set("fetch", func(call goja.FunctionCall) goja.Value {
 		config, ok := call.Argument(0).Export().(map[string]interface{})
