@@ -2,17 +2,16 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"github.com/dop251/goja"
+	"log"
+	"sync"
+	"time"
+
+	"github.com/joakimcarlsson/yalt/internal/config"
 	"github.com/joakimcarlsson/yalt/internal/http"
 	"github.com/joakimcarlsson/yalt/internal/metrics"
 	"github.com/joakimcarlsson/yalt/internal/models"
 	"github.com/joakimcarlsson/yalt/internal/virtualuser"
-	"log"
-	"os"
-	"sync"
-	"time"
 )
 
 type Engine struct {
@@ -86,7 +85,7 @@ func (e *Engine) runStage(stage models.Stage) error {
 
 // New creates a new Engine instance
 func New(scriptPath string) (*Engine, error) {
-	options, scriptContent, err := extractOptions(scriptPath)
+	options, scriptContent, err := config.LoadConfig(scriptPath)
 	if err != nil {
 		return nil, fmt.Errorf("error extracting options: %w", err)
 	}
@@ -116,41 +115,4 @@ func getMaxVuCount(options *models.Options) int {
 		}
 	}
 	return maxVuCount
-}
-
-// extractOptions extracts the options from a JavaScript file
-func extractOptions(scriptPath string) (*models.Options, []byte, error) {
-	vm := goja.New()
-
-	exports := vm.NewObject()
-	_ = vm.Set("exports", exports)
-
-	script, err := os.ReadFile(scriptPath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("error reading script file: %w", err)
-	}
-
-	if _, err = vm.RunString(string(script)); err != nil {
-		return nil, nil, fmt.Errorf("error running script: %w", err)
-	}
-
-	optionsVal := exports.Get("options")
-	if goja.IsUndefined(optionsVal) {
-		log.Println("options is undefined in the script")
-		return nil, nil, fmt.Errorf("options not found in script")
-	}
-
-	optionsJSON, err := json.Marshal(optionsVal)
-	if err != nil {
-		log.Println("failed to marshal options to JSON:", err)
-		return nil, nil, fmt.Errorf("error marshaling options: %w", err)
-	}
-
-	var options models.Options
-	if err := json.Unmarshal(optionsJSON, &options); err != nil {
-		log.Println("failed to unmarshal options JSON:", err)
-		return nil, nil, fmt.Errorf("error unmarshaling options: %w", err)
-	}
-
-	return &options, script, nil
 }
