@@ -21,7 +21,7 @@ type Engine struct {
 	metrics *metrics.Metrics
 }
 
-// Run starts the engine, wroom wroom
+// Run starts the engine
 func (e *Engine) Run() error {
 	for _, stage := range e.options.Stages {
 		err := e.runStage(stage)
@@ -46,22 +46,38 @@ func (e *Engine) runStage(stage models.Stage) error {
 	defer cancel()
 
 	var wg sync.WaitGroup
-	wg.Add(stage.Target)
+	taskChan := make(chan struct{}, stage.Target)
 
 	for i := 0; i < stage.Target; i++ {
+		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			user := e.pool.Fetch()
-			err := user.Run(ctx)
-			if err != nil {
-				log.Printf("Error running virtual user: %v", err)
+			defer e.pool.Return(user)
+			for range taskChan {
+				err := user.Run(ctx)
+				if err != nil {
+					log.Printf("Error running virtual user: %v", err)
+				}
 			}
-			e.pool.Return(user)
 		}()
 	}
 
-	wg.Wait()
-	return nil
+	ticker := time.NewTicker(time.Second / time.Duration(stage.Target))
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			close(taskChan)
+			wg.Wait()
+			return nil
+		case <-ticker.C:
+			for i := 0; i < stage.Target; i++ {
+				taskChan <- struct{}{}
+			}
+		}
+	}
 }
 
 // New creates a new Engine instance

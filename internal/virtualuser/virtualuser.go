@@ -15,20 +15,18 @@ type VirtualUser struct {
 	clientObject goja.Value
 }
 
-// Run runs the virtual user for the specified duration, sending 1 request per second.
-func (vu *VirtualUser) Run(ctx context.Context) error {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
+// Run runs the virtual user for the specified duration, sending requests.
+func (vu *VirtualUser) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
+			return
+		default:
 			_, err := vu.loadTestFunc(goja.Undefined(), vu.clientObject)
 			if err != nil {
 				log.Printf("Error running load test function: %v", err)
 			}
+			time.Sleep(time.Second)
 		}
 	}
 }
