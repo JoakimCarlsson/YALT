@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 	"github.com/joakimcarlsson/yalt/internal/virtualuser"
 )
 
+const progressBarLength = 30
+
 type Engine struct {
 	pool    *virtualuser.UserPool
 	options *models.Options
@@ -22,8 +25,8 @@ type Engine struct {
 
 // Run starts the engine
 func (e *Engine) Run() error {
-	for _, stage := range e.options.Stages {
-		if err := e.runStage(stage); err != nil {
+	for i, stage := range e.options.Stages {
+		if err := e.runStage(stage, i+1); err != nil {
 			return fmt.Errorf("error running stage: %w", err)
 		}
 		log.Println("Stage completed")
@@ -32,8 +35,31 @@ func (e *Engine) Run() error {
 	return nil
 }
 
+// New creates a new Engine instance
+func New(scriptPath string) (*Engine, error) {
+	options, scriptContent, err := config.LoadConfig(scriptPath)
+	if err != nil {
+		return nil, fmt.Errorf("error extracting options: %w", err)
+	}
+
+	maxVuCount := getMaxVuCount(options)
+	metrics := metrics.NewMetrics(options.Thresholds)
+	client := http.NewClient(metrics)
+
+	pool, err := virtualuser.CreatePool(maxVuCount, scriptContent, client)
+	if err != nil {
+		return nil, fmt.Errorf("error creating user pool: %w", err)
+	}
+
+	return &Engine{
+		pool:    pool,
+		options: options,
+		metrics: metrics,
+	}, nil
+}
+
 // runStage runs a stage with a given target number of virtual users
-func (e *Engine) runStage(stage models.Stage) error {
+func (e *Engine) runStage(stage models.Stage, stageNumber int) error {
 	log.Printf("Running stage with target %d for %s\n", stage.Target, stage.Duration)
 
 	ctx, cancel, taskChan, ticker, err := e.initializeStage(stage)
@@ -46,6 +72,8 @@ func (e *Engine) runStage(stage models.Stage) error {
 	var wg sync.WaitGroup
 
 	e.startVirtualUsers(&wg, stage.Target, taskChan, ctx)
+
+	go e.displayStageProgress(stage, stageNumber)
 
 	e.dispatchTasks(ctx, taskChan, ticker, stage.Target)
 
@@ -122,27 +150,27 @@ func (e *Engine) dispatchTasks(
 	}()
 }
 
-// New creates a new Engine instance
-func New(scriptPath string) (*Engine, error) {
-	options, scriptContent, err := config.LoadConfig(scriptPath)
-	if err != nil {
-		return nil, fmt.Errorf("error extracting options: %w", err)
+// displayStageProgress displays the stage progress with animations
+func (e *Engine) displayStageProgress(
+	stage models.Stage,
+	stageNumber int,
+) {
+	duration, _ := time.ParseDuration(stage.Duration)
+	startTime := time.Now()
+
+	for {
+		elapsed := time.Since(startTime)
+		if elapsed >= duration {
+			fmt.Printf("\rRunning stage %d [%s] %s / %s\n", stageNumber, strings.Repeat("=", progressBarLength), stage.Duration, stage.Duration)
+			return
+		}
+
+		progress := float64(elapsed) / float64(duration)
+		bar := int(progress * progressBarLength)
+		fmt.Printf("\rRunning stage %d [%s%s] %ds / %s", stageNumber, strings.Repeat("=", bar), strings.Repeat("-", progressBarLength-bar), int(elapsed.Seconds()), stage.Duration)
+
+		time.Sleep(time.Second)
 	}
-
-	maxVuCount := getMaxVuCount(options)
-	metrics := metrics.NewMetrics(options.Thresholds)
-	client := http.NewClient(metrics)
-
-	pool, err := virtualuser.CreatePool(maxVuCount, scriptContent, client)
-	if err != nil {
-		return nil, fmt.Errorf("error creating user pool: %w", err)
-	}
-
-	return &Engine{
-		pool:    pool,
-		options: options,
-		metrics: metrics,
-	}, nil
 }
 
 // getMaxVuCount calculates the maximum number of virtual users
