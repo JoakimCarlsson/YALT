@@ -10,20 +10,17 @@ import (
 )
 
 // Fetch performs an HTTP request based on the provided configuration
-func (c *Client) Fetch(config map[string]interface{}) error {
-	// Extract and validate method
+func (c *Client) Fetch(config map[string]interface{}) (map[string]interface{}, error) {
 	method, ok := config["method"].(string)
 	if !ok {
 		method = "GET"
 	}
 
-	// Extract and validate URL
 	url, ok := config["url"].(string)
 	if !ok || url == "" {
-		return errors.New("url is required and must be a string")
+		return nil, errors.New("url is required and must be a string")
 	}
 
-	// Extract body if present
 	var body io.Reader
 	if bodyStr, ok := config["body"].(string); ok {
 		body = bytes.NewBufferString(bodyStr)
@@ -31,14 +28,11 @@ func (c *Client) Fetch(config map[string]interface{}) error {
 		body = nil
 	}
 
-	// Create new HTTP request
 	req, err := http.NewRequest(method, url, body)
 	if err != nil {
-		log.Println("Failed to create request:", err)
-		return fmt.Errorf("error creating request: %w", err)
+		return nil, fmt.Errorf("error creating request: %w", err)
 	}
 
-	// Set headers if present
 	if headers, ok := config["headers"].(map[string]interface{}); ok {
 		for key, value := range headers {
 			if headerValue, ok := value.(string); ok {
@@ -51,15 +45,21 @@ func (c *Client) Fetch(config map[string]interface{}) error {
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		log.Println("Request failed with error:", err)
-		return fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if _, err = io.Copy(io.Discard, resp.Body); err != nil {
-		log.Println("Failed to read response body:", err)
-		return fmt.Errorf("error reading response body: %w", err)
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response body: %w", err)
 	}
 
-	return nil
+	responseDetails := map[string]interface{}{
+		"statusCode":    resp.StatusCode,
+		"statusMessage": resp.Status,
+		"headers":       resp.Header,
+		"body":          string(responseBody),
+	}
+
+	return responseDetails, nil
 }

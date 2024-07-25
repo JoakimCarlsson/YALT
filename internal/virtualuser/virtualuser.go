@@ -62,10 +62,16 @@ func CreateVu(
 func setupRuntime(client *http.Client) (*goja.Runtime, error) {
 	runtime := goja.New()
 
-	console := runtime.NewObject()
-	if err := console.Set("log", func(call goja.FunctionCall) goja.Value {
+	logHandler := func(call goja.FunctionCall) goja.Value {
+		if len(call.Arguments) > 0 {
+			msg := call.Argument(0).String()
+			log.Println(msg)
+		}
 		return goja.Undefined()
-	}); err != nil {
+	}
+
+	console := runtime.NewObject()
+	if err := console.Set("log", logHandler); err != nil {
 		return nil, fmt.Errorf("failed to set console.log: %w", err)
 	}
 
