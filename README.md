@@ -30,9 +30,10 @@ exports.options = {
   stages: [
     // Stages for load testing
     // Each stage defines a duration and a target number of virtual users (VUs)
-    { duration: '5s', target: 30 },  // 30 VUs for 5 seconds
-    { duration: '5s', target: 15 },  // 15 VUs for 5 seconds
-    { duration: '5s', target: 50 },  // 50 VUs for 5 seconds
+    // The rampUp and rampDown properties indicate the duration to gradually add or remove VUs
+    { duration: '60s', target: 100, rampUp: '30s', rampDown: '30s' },
+    { duration: '1m', target: 200, rampUp: '20s', rampDown: '10s' },
+    { duration: '30s', target: 50, rampUp: '5s', rampDown: '5s' },
   ],
 };
 
@@ -73,6 +74,13 @@ exports.loadTest = async function (client) {
     - 30 VUs for 5 seconds.
     - 15 VUs for 5 seconds.
     - 50 VUs for 5 seconds.
+- Ramp-up and Ramp-down:
+    - Ramp-up: The period during which the number of virtual users (VUs) is gradually increased until it reaches the target.
+    - Ramp-down: The period during which the number of virtual users (VUs) is gradually decreased to zero.
+    - Example: If the stage duration is 100 seconds, with a ramp-up of 20 seconds and a ramp-down of 20 seconds:
+        - The test will ramp up for 20 seconds, gradually increasing the VUs to the target.
+        - Then it will run at the target number of VUs for the stable period of 60 seconds (100s - 20s ramp-up - 20s ramp-down).
+        - Finally, it will ramp down for 20 seconds, gradually decreasing the VUs to zero.
 
 ### Load Test Function:
 - Defines the actions performed by each virtual user during the test.

@@ -64,6 +64,16 @@ func validateOptions(options *models.Options) error {
 		if _, err := time.ParseDuration(stage.Duration); err != nil {
 			return fmt.Errorf("invalid stage duration: %w", err)
 		}
+		if stage.RampUp != "" {
+			if _, err := time.ParseDuration(stage.RampUp); err != nil {
+				return fmt.Errorf("invalid stage ramp-up duration: %w", err)
+			}
+		}
+		if stage.RampDown != "" {
+			if _, err := time.ParseDuration(stage.RampDown); err != nil {
+				return fmt.Errorf("invalid stage ramp-down duration: %w", err)
+			}
+		}
 	}
 	return nil
 }
