@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/joakimcarlsson/yalt/internal/config"
@@ -22,8 +23,7 @@ type Engine struct {
 	pool         *virtualuser.UserPool
 	options      *models.Options
 	metrics      *metrics.Metrics
-	activeUsers  int
-	mu           sync.Mutex
+	activeUsers  int64
 	userChannels []chan struct{}
 }
 
@@ -66,25 +66,15 @@ func New(scriptPath string) (*Engine, error) {
 func (e *Engine) runStage(stage models.Stage, stageNumber int) error {
 	log.Printf("Running stage %d with target %d for %s\n", stageNumber, stage.Target, stage.Duration)
 
-	duration, err := time.ParseDuration(stage.Duration)
+	duration, rampUp, rampDown, err := stage.GetDurations()
 	if err != nil {
-		return fmt.Errorf("invalid duration format: %w", err)
-	}
-
-	rampUp, err := time.ParseDuration(stage.RampUp)
-	if err != nil {
-		rampUp = 0
-	}
-
-	rampDown, err := time.ParseDuration(stage.RampDown)
-	if err != nil {
-		rampDown = 0
+		return fmt.Errorf("error getting durations: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 
-	startUsers := e.getCurrentActiveUsers()
+	startUsers := int(atomic.LoadInt64(&e.activeUsers))
 	endUsers := stage.Target
 
 	e.userChannels = make([]chan struct{}, endUsers)
@@ -93,19 +83,18 @@ func (e *Engine) runStage(stage models.Stage, stageNumber int) error {
 	}
 
 	var wg sync.WaitGroup
+	wg.Add(endUsers + 1)
 
-	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		e.rampUsers(ctx, startUsers, endUsers, rampUp, rampDown, duration)
 	}()
 
 	for i := 0; i < endUsers; i++ {
-		wg.Add(1)
 		go e.runVirtualUser(ctx, &wg, i)
 	}
 
-	go e.displayStageProgress(stage, stageNumber)
+	go e.displayStageProgress(ctx, stage, stageNumber)
 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -119,7 +108,7 @@ func (e *Engine) runStage(stage models.Stage, stageNumber int) error {
 			wg.Wait()
 			return nil
 		case <-ticker.C:
-			activeUsers := e.getCurrentActiveUsers()
+			activeUsers := int(atomic.LoadInt64(&e.activeUsers))
 			e.sendTasks(activeUsers)
 		}
 	}
@@ -167,9 +156,11 @@ func (e *Engine) rampUsers(
 
 	e.adjustUserCount(ctx, start, end, rampUp)
 
-	steadyStateCtx, cancel := context.WithTimeout(ctx, steadyStateDuration)
-	<-steadyStateCtx.Done()
-	cancel()
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(steadyStateDuration):
+	}
 
 	e.adjustUserCount(ctx, end, start, rampDown)
 }
@@ -181,7 +172,7 @@ func (e *Engine) adjustUserCount(
 	duration time.Duration,
 ) {
 	if duration == 0 {
-		e.setUserCount(end)
+		atomic.StoreInt64(&e.activeUsers, int64(end))
 		return
 	}
 
@@ -196,26 +187,11 @@ func (e *Engine) adjustUserCount(
 			return
 		case <-ticker.C:
 			currentUsers := int(math.Round(float64(start) + stepSize*float64(i)))
-			e.setUserCount(currentUsers)
+			atomic.StoreInt64(&e.activeUsers, int64(currentUsers))
 		}
 	}
 
-	e.setUserCount(end)
-}
-
-// setUserCount sets the number of active users
-func (e *Engine) setUserCount(count int) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.activeUsers = count
-	log.Printf("Active users: %d", e.activeUsers)
-}
-
-// getCurrentActiveUsers returns the current number of active users
-func (e *Engine) getCurrentActiveUsers() int {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.activeUsers
+	atomic.StoreInt64(&e.activeUsers, int64(end))
 }
 
 // initializeStage initializes the stage with context, channel, and ticker
@@ -267,38 +243,45 @@ func (e *Engine) dispatchTasks(
 
 // displayStageProgress displays the stage progress with animations
 func (e *Engine) displayStageProgress(
+	ctx context.Context,
 	stage models.Stage,
 	stageNumber int,
 ) {
 	duration, _ := time.ParseDuration(stage.Duration)
 	startTime := time.Now()
 
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
 	for {
-		elapsed := time.Since(startTime)
-		if elapsed >= duration {
-			fmt.Printf(
-				"\rRunning stage %d [%s] %s / %s\n",
-				stageNumber,
-				strings.Repeat("=", progressBarLength),
-				stage.Duration,
-				stage.Duration,
-			)
+		select {
+		case <-ctx.Done():
 			return
+		case <-ticker.C:
+			elapsed := time.Since(startTime)
+			if elapsed >= duration {
+				fmt.Printf(
+					"\rRunning stage %d [%s] %s / %s\n",
+					stageNumber,
+					strings.Repeat("=", progressBarLength),
+					stage.Duration,
+					stage.Duration,
+				)
+				return
+			}
+
+			progress := float64(elapsed) / float64(duration)
+			bar := int(progress * progressBarLength)
+			fmt.Printf(
+				"\rRunning stage %d [%s%s] %ds / %s active vu: %d",
+				stageNumber,
+				strings.Repeat("=", bar),
+				strings.Repeat("-", progressBarLength-bar),
+				int(elapsed.Seconds()),
+				stage.Duration,
+				atomic.LoadInt64(&e.activeUsers),
+			)
 		}
-
-		progress := float64(elapsed) / float64(duration)
-		bar := int(progress * progressBarLength)
-		fmt.Printf(
-			"\rRunning stage %d [%s%s] %ds / %s active vu: %d",
-			stageNumber,
-			strings.Repeat("=", bar),
-			strings.Repeat("-", progressBarLength-bar),
-			int(elapsed.Seconds()),
-			stage.Duration,
-			e.getCurrentActiveUsers(),
-		)
-
-		time.Sleep(time.Second)
 	}
 }
 
