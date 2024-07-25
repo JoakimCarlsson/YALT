@@ -48,12 +48,15 @@ func RegisterClientMethods(
 			return vm.ToValue("Invalid argument type")
 		}
 
-		if err := client.Fetch(config); err != nil {
+		responseDetails, err := client.Fetch(config)
+		if err != nil {
 			log.Println("Error performing request:", err)
-			return vm.ToValue("Error performing request: " + err.Error())
+			return vm.ToValue(map[string]interface{}{
+				"error": err.Error(),
+			})
 		}
 
-		return goja.Undefined()
+		return vm.ToValue(responseDetails)
 	}); err != nil {
 		return fmt.Errorf("error setting fetch method: %w", err)
 	}
