@@ -47,8 +47,8 @@ func New(scriptPath string) (*Engine, error) {
 	}
 
 	maxVuCount := getMaxVuCount(options)
-	metrics := metrics.NewMetrics(options.Thresholds)
-	client := http.NewClient(metrics)
+	httpMetrics := metrics.NewMetrics(options.Thresholds)
+	client := http.NewClient(httpMetrics)
 
 	pool, err := virtualuser.CreatePool(maxVuCount, scriptContent, client)
 	if err != nil {
@@ -58,7 +58,7 @@ func New(scriptPath string) (*Engine, error) {
 	return &Engine{
 		pool:    pool,
 		options: options,
-		metrics: metrics,
+		metrics: httpMetrics,
 	}, nil
 }
 
