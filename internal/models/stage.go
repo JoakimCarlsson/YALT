@@ -1,6 +1,8 @@
 package models
 
 type Stage struct {
-	Duration string `json:"duration"`
 	Target   int    `json:"target"`
+	Duration string `json:"duration"`
+	RampUp   string `json:"rampUp,omitempty"`
+	RampDown string `json:"rampDown,omitempty"`
 }
