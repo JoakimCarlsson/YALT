@@ -44,17 +44,19 @@ func NewMetrics(thresholds map[string][]string) *Metrics {
 // AddRequestMetrics adds a new request metric
 func (m *Metrics) AddRequestMetrics(metrics RequestMetrics) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.requests = append(m.requests, metrics)
+	m.mu.Unlock()
 }
 
 // CalculateAndDisplayMetrics calculates and displays the metrics
 func (m *Metrics) CalculateAndDisplayMetrics() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	totalRequests := int64(len(m.requests))
+	requests := make([]RequestMetrics, totalRequests)
+	copy(requests, m.requests)
+	m.mu.Unlock()
 
 	totalDuration := time.Since(m.startTime)
-	totalRequests := int64(len(m.requests))
 	rps := float64(totalRequests) / totalDuration.Seconds()
 
 	var failedRequests int64
@@ -68,7 +70,7 @@ func (m *Metrics) CalculateAndDisplayMetrics() {
 
 	statusCodes := make(map[int]int)
 
-	for _, req := range m.requests {
+	for _, req := range requests {
 		duration := req.EndTime.Sub(req.StartTime)
 		durations = append(durations, duration)
 		totalReqDuration += duration
@@ -108,43 +110,15 @@ func (m *Metrics) CalculateAndDisplayMetrics() {
 		}
 	}
 
-	sort.Slice(durations, func(i, j int) bool {
-		return durations[i] < durations[j]
-	})
-
-	sort.Slice(dnsDurations, func(i, j int) bool {
-		return dnsDurations[i] < dnsDurations[j]
-	})
-
-	sort.Slice(connectDurations, func(i, j int) bool {
-		return connectDurations[i] < connectDurations[j]
-	})
-
-	sort.Slice(tlsDurations, func(i, j int) bool {
-		return tlsDurations[i] < tlsDurations[j]
-	})
-
-	sort.Slice(ttfbDurations, func(i, j int) bool {
-		return ttfbDurations[i] < ttfbDurations[j]
-	})
-
-	minDuration := durations[0]
-	maxDuration := durations[len(durations)-1]
-	medianDuration := durations[len(durations)/2]
-	avgDuration := totalReqDuration / time.Duration(totalRequests)
-
+	minDuration, medianDuration, maxDuration, avgDuration := calculateMetrics(durations, totalReqDuration, totalRequests)
 	minDNS, medianDNS, maxDNS, avgDNS := calculateMetrics(dnsDurations, totalDNS, totalRequests)
 	minConnect, medianConnect, maxConnect, avgConnect := calculateMetrics(connectDurations, totalConnect, totalRequests)
 	minTLS, medianTLS, maxTLS, avgTLS := calculateMetrics(tlsDurations, totalTLS, totalRequests)
 	minTTFB, medianTTFB, maxTTFB, avgTTFB := calculateMetrics(ttfbDurations, totalTTFB, totalRequests)
 
-	p90Index := int(float64(len(durations)) * 0.9)
-	p95Index := int(float64(len(durations)) * 0.95)
-	p99Index := int(float64(len(durations)) * 0.99)
-
-	p90Duration := durations[p90Index]
-	p95Duration := durations[p95Index]
-	p99Duration := durations[p99Index]
+	p90Duration := calculatePercentile(durations, 90)
+	p95Duration := calculatePercentile(durations, 95)
+	p99Duration := calculatePercentile(durations, 99)
 
 	failureRate := float64(failedRequests) / float64(totalRequests)
 
@@ -166,36 +140,27 @@ func (m *Metrics) CalculateAndDisplayMetrics() {
 		return fmt.Sprintf("%-*s: %-*v", 25, label, 20, value)
 	}
 
-	fmt.Print(format("Total Requests", fmt.Sprintf("%d (%.2f/s)", totalRequests, rps)))
-	fmt.Print("\n")
-	fmt.Print(format("Data Sent", fmt.Sprintf("%s (%s/s)", convertBytes(totalDataSent), convertBytes(dataRateSent))))
-	fmt.Print("\n")
-	fmt.Print(format("Data Received", fmt.Sprintf("%s (%s/s)", convertBytes(totalDataReceived), convertBytes(dataRateReceived))))
-	fmt.Print("\n")
+	fmt.Print(format("Total Requests", fmt.Sprintf("%d (%.2f/s)\n", totalRequests, rps)))
+	fmt.Print(format("Data Sent", fmt.Sprintf("%s (%s/s)\n", convertBytes(totalDataSent), convertBytes(dataRateSent))))
+	fmt.Print(format("Data Received", fmt.Sprintf("%s (%s/s)\n", convertBytes(totalDataReceived), convertBytes(dataRateReceived))))
 
-	fmt.Print(format("HTTP Request Duration", fmt.Sprintf("min=%7.2fms, med=%7.2fms, max=%7.2fms, avg=%7.2fms",
+	fmt.Print(format("HTTP Request Duration", fmt.Sprintf("min=%7.2fms, med=%7.2fms, max=%7.2fms, avg=%7.2fms\n",
 		minDuration.Seconds()*1000, medianDuration.Seconds()*1000, maxDuration.Seconds()*1000, avgDuration.Seconds()*1000)))
-	fmt.Print("\n")
 
-	fmt.Print(format("Percentiles", fmt.Sprintf("90th=%7.2fms, 95th=%7.2fms, 99th=%7.2fms",
+	fmt.Print(format("Percentiles", fmt.Sprintf("90th=%7.2fms, 95th=%7.2fms, 99th=%7.2fms\n",
 		p90Duration.Seconds()*1000, p95Duration.Seconds()*1000, p99Duration.Seconds()*1000)))
-	fmt.Print("\n")
 
-	fmt.Print(format("DNS Lookup", fmt.Sprintf("min=%7.2fms, med=%7.2fms, max=%7.2fms, avg=%7.2fms",
+	fmt.Print(format("DNS Lookup", fmt.Sprintf("min=%7.2fms, med=%7.2fms, max=%7.2fms, avg=%7.2fms\n",
 		minDNS.Seconds()*1000, medianDNS.Seconds()*1000, maxDNS.Seconds()*1000, avgDNS.Seconds()*1000)))
-	fmt.Print("\n")
 
-	fmt.Print(format("TCP Connect", fmt.Sprintf("min=%7.2fms, med=%7.2fms, max=%7.2fms, avg=%7.2fms",
+	fmt.Print(format("TCP Connect", fmt.Sprintf("min=%7.2fms, med=%7.2fms, max=%7.2fms, avg=%7.2fms\n",
 		minConnect.Seconds()*1000, medianConnect.Seconds()*1000, maxConnect.Seconds()*1000, avgConnect.Seconds()*1000)))
-	fmt.Print("\n")
 
-	fmt.Print(format("TLS Handshake", fmt.Sprintf("min=%7.2fms, med=%7.2fms, max=%7.2fms, avg=%7.2fms",
+	fmt.Print(format("TLS Handshake", fmt.Sprintf("min=%7.2fms, med=%7.2fms, max=%7.2fms, avg=%7.2fms\n",
 		minTLS.Seconds()*1000, medianTLS.Seconds()*1000, maxTLS.Seconds()*1000, avgTLS.Seconds()*1000)))
-	fmt.Print("\n")
 
-	fmt.Print(format("Time to First Byte", fmt.Sprintf("min=%7.2fms, med=%7.2fms, max=%7.2fms, avg=%7.2fms",
+	fmt.Print(format("Time to First Byte", fmt.Sprintf("min=%7.2fms, med=%7.2fms, max=%7.2fms, avg=%7.2fms\n",
 		minTTFB.Seconds()*1000, medianTTFB.Seconds()*1000, maxTTFB.Seconds()*1000, avgTTFB.Seconds()*1000)))
-	fmt.Print("\n")
 
 	fmt.Printf("Status Code Distribution:\n")
 	var sortedStatusCodes []int

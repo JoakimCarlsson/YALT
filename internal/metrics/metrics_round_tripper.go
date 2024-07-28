@@ -28,24 +28,22 @@ func (m *Metrics) NewMetricsRoundTripper(
 
 // RoundTrip executes a single HTTP transaction and records metrics
 func (m *RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	var startTime = time.Now()
-
 	metrics := &RequestMetrics{
-		StartTime: startTime,
+		StartTime: time.Now(),
 		Request:   cloneRequest(req),
 	}
 
 	trace := &httptrace.ClientTrace{
-		DNSStart:             func(httptrace.DNSStartInfo) { metrics.DNSStart = startTime },
-		DNSDone:              func(httptrace.DNSDoneInfo) { metrics.DNSDone = startTime },
-		ConnectStart:         func(string, string) { metrics.ConnectStart = startTime },
-		ConnectDone:          func(string, string, error) { metrics.ConnectDone = startTime },
-		TLSHandshakeStart:    func() { metrics.TLSHandshakeStart = startTime },
-		TLSHandshakeDone:     func(tls.ConnectionState, error) { metrics.TLSHandshakeDone = startTime },
-		GotConn:              func(httptrace.GotConnInfo) { metrics.GotConn = startTime },
-		WroteHeaders:         func() { metrics.WroteHeaders = startTime },
-		WroteRequest:         func(httptrace.WroteRequestInfo) { metrics.WroteRequest = startTime },
-		GotFirstResponseByte: func() { metrics.GotFirstResponseByte = startTime },
+		DNSStart:             func(httptrace.DNSStartInfo) { metrics.DNSStart = time.Now() },
+		DNSDone:              func(httptrace.DNSDoneInfo) { metrics.DNSDone = time.Now() },
+		ConnectStart:         func(string, string) { metrics.ConnectStart = time.Now() },
+		ConnectDone:          func(string, string, error) { metrics.ConnectDone = time.Now() },
+		TLSHandshakeStart:    func() { metrics.TLSHandshakeStart = time.Now() },
+		TLSHandshakeDone:     func(tls.ConnectionState, error) { metrics.TLSHandshakeDone = time.Now() },
+		GotConn:              func(httptrace.GotConnInfo) { metrics.GotConn = time.Now() },
+		WroteHeaders:         func() { metrics.WroteHeaders = time.Now() },
+		WroteRequest:         func(httptrace.WroteRequestInfo) { metrics.WroteRequest = time.Now() },
+		GotFirstResponseByte: func() { metrics.GotFirstResponseByte = time.Now() },
 	}
 
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
