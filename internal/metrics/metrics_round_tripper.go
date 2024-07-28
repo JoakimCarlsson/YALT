@@ -2,8 +2,10 @@ package metrics
 
 import (
 	"bytes"
+	"crypto/tls"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"time"
 )
 
@@ -26,26 +28,35 @@ func (m *Metrics) NewMetricsRoundTripper(
 
 // RoundTrip executes a single HTTP transaction and records metrics
 func (m *RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	startTime := time.Now()
+	metrics := &RequestMetrics{
+		StartTime: time.Now(),
+		Request:   cloneRequest(req),
+	}
 
-	reqClone := cloneRequest(req)
+	trace := &httptrace.ClientTrace{
+		DNSStart:             func(httptrace.DNSStartInfo) { metrics.DNSStart = time.Now() },
+		DNSDone:              func(httptrace.DNSDoneInfo) { metrics.DNSDone = time.Now() },
+		ConnectStart:         func(string, string) { metrics.ConnectStart = time.Now() },
+		ConnectDone:          func(string, string, error) { metrics.ConnectDone = time.Now() },
+		TLSHandshakeStart:    func() { metrics.TLSHandshakeStart = time.Now() },
+		TLSHandshakeDone:     func(tls.ConnectionState, error) { metrics.TLSHandshakeDone = time.Now() },
+		GotConn:              func(httptrace.GotConnInfo) { metrics.GotConn = time.Now() },
+		WroteHeaders:         func() { metrics.WroteHeaders = time.Now() },
+		WroteRequest:         func(httptrace.WroteRequestInfo) { metrics.WroteRequest = time.Now() },
+		GotFirstResponseByte: func() { metrics.GotFirstResponseByte = time.Now() },
+	}
+
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 
 	resp, err := m.next.RoundTrip(req)
 
-	endTime := time.Now()
-
-	var respClone *http.Response
+	metrics.EndTime = time.Now()
 	if resp != nil {
-		respClone = cloneResponse(resp)
+		metrics.Response = cloneResponse(resp)
 	}
+	metrics.Error = err
 
-	m.metrics.AddRequestMetrics(RequestMetrics{
-		StartTime: startTime,
-		EndTime:   endTime,
-		Request:   reqClone,
-		Response:  respClone,
-		Error:     err,
-	})
+	m.metrics.AddRequestMetrics(*metrics)
 
 	return resp, err
 }
