@@ -2,22 +2,15 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"github.com/joakimcarlsson/yalt/internal/engine"
 	"log"
-	"os"
 )
 
 func main() {
-	scriptFile := flag.String("script", "", "Path to the script file")
+	scriptFile := "C:\\Users\\JCarlsson\\Documents\\Test\\test.js"
 	flag.Parse()
 
-	if *scriptFile == "" {
-		fmt.Println("Usage: go run main.go -script=path/to/your/script.js")
-		os.Exit(1)
-	}
-
-	runtime, err := engine.New(*scriptFile)
+	runtime, err := engine.New(scriptFile)
 	if err != nil {
 		log.Fatalf("Error creating engine: %v", err)
 	}
