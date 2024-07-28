@@ -1,7 +1,10 @@
 package metrics
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"net/http"
 	"sort"
 	"sync"
 	"time"
@@ -17,28 +20,26 @@ type Metrics struct {
 
 // RequestMetrics represents a single request metric
 type RequestMetrics struct {
-	Duration time.Duration
-	Failed   bool
+	StartTime time.Time
+	EndTime   time.Time
+	Request   *http.Request
+	Response  *http.Response
+	Error     error
 }
 
 // NewMetrics creates a new Metrics instance
 func NewMetrics(thresholds map[string][]string) *Metrics {
 	return &Metrics{
 		thresholds: thresholds,
+		startTime:  time.Now(),
 	}
 }
 
 // AddRequestMetrics adds a new request metric
-func (m *Metrics) AddRequestMetrics(
-	duration time.Duration,
-	failed bool,
-) {
+func (m *Metrics) AddRequestMetrics(metrics RequestMetrics) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.requests = append(
-		m.requests,
-		RequestMetrics{Duration: duration, Failed: failed},
-	)
+	m.requests = append(m.requests, metrics)
 }
 
 // CalculateAndDisplayMetrics calculates and displays the metrics
@@ -46,18 +47,29 @@ func (m *Metrics) CalculateAndDisplayMetrics() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	totalRequests := len(m.requests)
-	failedRequests := 0
-	var totalDuration time.Duration
+	totalDuration := time.Since(m.startTime)
+	totalRequests := int64(len(m.requests))
+	totalSeconds := totalDuration.Seconds()
+	rps := float64(totalRequests) / totalSeconds
 
-	durations := make([]time.Duration, 0, totalRequests)
+	var failedRequests int64
+	var totalReqDuration time.Duration
+	var totalDataSent, totalDataReceived int64
+	durations := make([]time.Duration, 0, len(m.requests))
 
 	for _, req := range m.requests {
-		if req.Failed {
+		duration := req.EndTime.Sub(req.StartTime)
+		durations = append(durations, duration)
+		totalReqDuration += duration
+
+		if req.Error != nil || (req.Response != nil && req.Response.StatusCode >= 400) {
 			failedRequests++
 		}
-		durations = append(durations, req.Duration)
-		totalDuration += req.Duration
+
+		totalDataSent += estimateRequestSize(req.Request)
+		if req.Response != nil {
+			totalDataReceived += estimateResponseSize(req.Response)
+		}
 	}
 
 	sort.Slice(durations, func(i, j int) bool {
@@ -66,9 +78,58 @@ func (m *Metrics) CalculateAndDisplayMetrics() {
 
 	minDuration := durations[0]
 	maxDuration := durations[len(durations)-1]
+	medianDuration := durations[len(durations)/2]
+	avgDuration := totalReqDuration / time.Duration(len(m.requests))
+
 	failureRate := float64(failedRequests) / float64(totalRequests)
 
+	fmt.Printf("Total Requests: %d, RPS: %.2f /s\n", totalRequests, rps)
+	fmt.Printf("Failed Requests: %d\n", failedRequests)
+	fmt.Printf("Failure Rate: %.2f%%\n", failureRate*100)
+	fmt.Printf("Total Data Sent: %d bytes\n", totalDataSent)
+	fmt.Printf("Total Data Received: %d bytes\n", totalDataReceived)
+	fmt.Printf("Duration min = %v avg = %v med = %v max = %v\n", minDuration, avgDuration, medianDuration, maxDuration)
+
 	m.evaluateThresholds(failureRate, minDuration, maxDuration, durations)
+}
+
+// estimateRequestSize estimates the size of an HTTP request
+func estimateRequestSize(req *http.Request) int64 {
+	size := int64(0)
+	size += int64(len(req.Method))
+	size += int64(len(req.URL.String()))
+	size += int64(len(req.Proto))
+	for name, values := range req.Header {
+		size += int64(len(name))
+		for _, value := range values {
+			size += int64(len(value))
+		}
+	}
+	if req.Body != nil {
+		body, _ := io.ReadAll(req.Body)
+		size += int64(len(body))
+		req.Body = io.NopCloser(bytes.NewBuffer(body))
+	}
+	return size
+}
+
+// estimateResponseSize estimates the size of an HTTP response
+func estimateResponseSize(resp *http.Response) int64 {
+	size := int64(0)
+	size += int64(len(resp.Status))
+	size += int64(len(resp.Proto))
+	for name, values := range resp.Header {
+		size += int64(len(name))
+		for _, value := range values {
+			size += int64(len(value))
+		}
+	}
+	if resp.Body != nil {
+		body, _ := io.ReadAll(resp.Body)
+		size += int64(len(body))
+		resp.Body = io.NopCloser(bytes.NewBuffer(body))
+	}
+	return size
 }
 
 // calculatePercentile calculates the value at a given percentile
