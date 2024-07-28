@@ -83,14 +83,12 @@ func (e *Engine) runStage(
 
 	var wg sync.WaitGroup
 
-	// Ramp up and down users in a separate goroutine
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		e.rampUsers(ctx, startUsers, endUsers, rampUp, rampDown, duration)
 	}()
 
-	// Run virtual users
 	for i := 0; i < endUsers; i++ {
 		wg.Add(1)
 		go e.runVirtualUser(ctx, &wg)
@@ -101,7 +99,6 @@ func (e *Engine) runStage(
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
-	// Main loop to send tasks and check for context completion
 	for {
 		select {
 		case <-ctx.Done():
