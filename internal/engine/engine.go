@@ -20,11 +20,11 @@ import (
 const progressBarLength = 30
 
 type Engine struct {
-	pool         *virtualuser.UserPool
-	options      *models.Options
-	metrics      *metrics.Metrics
-	activeUsers  int64
-	userChannels []chan struct{}
+	pool        *virtualuser.UserPool
+	options     *models.Options
+	metrics     *metrics.Metrics
+	activeUsers int64
+	taskChan    chan struct{}
 }
 
 // Run starts the engine
@@ -56,14 +56,18 @@ func New(scriptPath string) (*Engine, error) {
 	}
 
 	return &Engine{
-		pool:    pool,
-		options: options,
-		metrics: httpMetrics,
+		pool:     pool,
+		options:  options,
+		metrics:  httpMetrics,
+		taskChan: make(chan struct{}, maxVuCount),
 	}, nil
 }
 
 // runStage runs a stage with a given target number of virtual users
-func (e *Engine) runStage(stage models.Stage, stageNumber int) error {
+func (e *Engine) runStage(
+	stage models.Stage,
+	stageNumber int,
+) error {
 	log.Printf("Running stage %d with target %d for %s\n", stageNumber, stage.Target, stage.Duration)
 
 	duration, rampUp, rampDown, err := stage.GetDurations()
@@ -77,21 +81,19 @@ func (e *Engine) runStage(stage models.Stage, stageNumber int) error {
 	startUsers := int(atomic.LoadInt64(&e.activeUsers))
 	endUsers := stage.Target
 
-	e.userChannels = make([]chan struct{}, endUsers)
-	for i := range e.userChannels {
-		e.userChannels[i] = make(chan struct{}, 1)
-	}
-
 	var wg sync.WaitGroup
-	wg.Add(endUsers + 1)
 
+	// Ramp up and down users in a separate goroutine
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		e.rampUsers(ctx, startUsers, endUsers, rampUp, rampDown, duration)
 	}()
 
+	// Run virtual users
 	for i := 0; i < endUsers; i++ {
-		go e.runVirtualUser(ctx, &wg, i)
+		wg.Add(1)
+		go e.runVirtualUser(ctx, &wg)
 	}
 
 	go e.displayStageProgress(ctx, stage, stageNumber)
@@ -99,12 +101,11 @@ func (e *Engine) runStage(stage models.Stage, stageNumber int) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
+	// Main loop to send tasks and check for context completion
 	for {
 		select {
 		case <-ctx.Done():
-			for _, ch := range e.userChannels {
-				close(ch)
-			}
+			close(e.taskChan)
 			wg.Wait()
 			return nil
 		case <-ticker.C:
@@ -118,7 +119,6 @@ func (e *Engine) runStage(stage models.Stage, stageNumber int) error {
 func (e *Engine) runVirtualUser(
 	ctx context.Context,
 	wg *sync.WaitGroup,
-	index int,
 ) {
 	defer wg.Done()
 	user := e.pool.Fetch()
@@ -128,7 +128,10 @@ func (e *Engine) runVirtualUser(
 		select {
 		case <-ctx.Done():
 			return
-		case <-e.userChannels[index]:
+		case _, ok := <-e.taskChan:
+			if !ok {
+				return
+			}
 			if err := user.Run(ctx); err != nil {
 				log.Printf("Error running virtual user: %v", err)
 			}
@@ -140,13 +143,13 @@ func (e *Engine) runVirtualUser(
 func (e *Engine) sendTasks(activeUsers int) {
 	for i := 0; i < activeUsers; i++ {
 		select {
-		case e.userChannels[i] <- struct{}{}:
+		case e.taskChan <- struct{}{}:
 		default:
 		}
 	}
 }
 
-// ramUsers adjusts the number of virtual users over time
+// rampUsers adjusts the number of virtual users over time
 func (e *Engine) rampUsers(
 	ctx context.Context,
 	start, end int,
@@ -192,53 +195,6 @@ func (e *Engine) adjustUserCount(
 	}
 
 	atomic.StoreInt64(&e.activeUsers, int64(end))
-}
-
-// initializeStage initializes the stage with context, channel, and ticker
-func (e *Engine) initializeStage(stage models.Stage) (
-	context.Context,
-	context.CancelFunc,
-	chan struct{},
-	*time.Ticker,
-	error,
-) {
-	duration, err := time.ParseDuration(stage.Duration)
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("invalid duration format: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), duration)
-	taskChan := make(chan struct{}, stage.Target)
-	ticker := time.NewTicker(time.Second / time.Duration(stage.Target))
-
-	return ctx, cancel, taskChan, ticker, nil
-}
-
-// dispatchTasks dispatches tasks to virtual users at a controlled rate
-func (e *Engine) dispatchTasks(
-	ctx context.Context,
-	taskChan chan struct{},
-	ticker *time.Ticker,
-	target int,
-) {
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				close(taskChan)
-				return
-			case <-ticker.C:
-				for i := 0; i < target; i++ {
-					select {
-					case taskChan <- struct{}{}:
-					case <-ctx.Done():
-						close(taskChan)
-						return
-					}
-				}
-			}
-		}
-	}()
 }
 
 // displayStageProgress displays the stage progress with animations
